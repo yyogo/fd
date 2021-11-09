@@ -1,7 +1,7 @@
-use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
+use crate::entry::DirEntry;
 use crate::error::print_error;
 use crate::exit_codes::{merge_exitcodes, ExitCode};
 use crate::walk::WorkerResult;
@@ -25,7 +25,7 @@ pub fn job(
 
         // Obtain the next result from the receiver, else if the channel
         // has closed, exit from the loop
-        let value: PathBuf = match lock.recv() {
+        let value: DirEntry = match lock.recv() {
             Ok(WorkerResult::Entry(val)) => val,
             Ok(WorkerResult::Error(err)) => {
                 if show_filesystem_errors {
@@ -39,7 +39,7 @@ pub fn job(
         // Drop the lock so that other threads can read from the receiver.
         drop(lock);
         // Generate a command, execute it and store its exit code.
-        results.push(cmd.generate_and_execute(&value, Arc::clone(&out_perm), buffer_output))
+        results.push(cmd.generate_and_execute(value.path(), Arc::clone(&out_perm), buffer_output))
     }
     // Returns error in case of any error.
     merge_exitcodes(results)
@@ -53,7 +53,7 @@ pub fn batch(
     limit: usize,
 ) -> ExitCode {
     let paths = rx.iter().filter_map(|value| match value {
-        WorkerResult::Entry(val) => Some(val),
+        WorkerResult::Entry(val) => Some(val.path().to_owned()),
         WorkerResult::Error(err) => {
             if show_filesystem_errors {
                 print_error(err.to_string());

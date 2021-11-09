@@ -7,6 +7,7 @@ use std::sync::Arc;
 use lscolors::{Indicator, LsColors, Style};
 
 use crate::config::Config;
+use crate::entry::DirEntry;
 use crate::error::print_error;
 use crate::exit_codes::ExitCode;
 use crate::filesystem::strip_current_dir;
@@ -18,14 +19,15 @@ fn replace_path_separator(path: &str, new_path_separator: &str) -> String {
 // TODO: this function is performance critical and can probably be optimized
 pub fn print_entry(
     stdout: &mut StdoutLock,
-    entry: &Path,
+    entry: &DirEntry,
     config: &Config,
     wants_to_quit: &Arc<AtomicBool>,
 ) {
-    let path = if entry.is_absolute() {
-        entry
+    let path = entry.path();
+    let path = if path.is_absolute() {
+        path
     } else {
-        strip_current_dir(entry)
+        strip_current_dir(path)
     };
 
     let r = if let Some(ref ls_colors) = config.ls_colors {
