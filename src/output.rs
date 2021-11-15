@@ -64,7 +64,7 @@ fn print_trailing_slash(
     config: &Config,
     style: Option<&Style>,
 ) -> io::Result<()> {
-    if entry.metadata().map_or(false, |m| m.is_dir()) {
+    if entry.file_type().map_or(false, |ft| ft.is_dir()) {
         let separator = config
             .path_separator
             .as_ref()
