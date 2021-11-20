@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::io;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -31,9 +32,19 @@ enum ReceiverMode {
     Streaming,
 }
 
+pub struct Match {
+    pub entry: DirEntry,
+    pub range: Range<usize>,
+}
+
+impl Match {
+    pub fn new(entry: DirEntry, range: Range<usize>) -> Self {
+        Self { entry, range }
+    }
+}
 /// The Worker threads can result in a valid entry having PathBuf or an error.
 pub enum WorkerResult {
-    Entry(DirEntry),
+    Match(Match),
     Error(ignore::Error),
 }
 
@@ -234,7 +245,7 @@ fn spawn_receiver(
 
             for worker_result in rx {
                 match worker_result {
-                    WorkerResult::Entry(value) => {
+                    WorkerResult::Match(value) => {
                         if config.quiet {
                             return ExitCode::HasResults(true);
                         }
@@ -284,7 +295,7 @@ fn spawn_receiver(
 
             // If we have finished fast enough (faster than max_buffer_time), we haven't streamed
             // anything to the console, yet. In this case, sort the results and print them:
-            buffer.sort_by(|a, b| a.path().cmp(b.path()));
+            buffer.sort_by(|a, b| a.entry.path().cmp(b.entry.path()));
             for value in buffer {
                 output::print_entry(&mut stdout, &value, &config, &wants_to_quit);
             }
@@ -377,9 +388,11 @@ fn spawn_senders(
                 }
             };
 
-            if !pattern.is_match(&filesystem::osstr_to_bytes(search_str.as_ref())) {
-                return ignore::WalkState::Continue;
-            }
+            let text = filesystem::osstr_to_bytes(search_str.as_ref());
+            let match_range = match pattern.find(&text) {
+                None => return ignore::WalkState::Continue,
+                Some(m) => m.range(),
+            };
 
             // Filter out unwanted extensions.
             if let Some(ref exts_regex) = config.extensions {
@@ -448,7 +461,7 @@ fn spawn_senders(
                 }
             }
 
-            let send_result = tx_thread.send(WorkerResult::Entry(entry));
+            let send_result = tx_thread.send(WorkerResult::Match(Match::new(entry, match_range)));
 
             if send_result.is_err() {
                 return ignore::WalkState::Quit;

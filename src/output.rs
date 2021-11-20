@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::io::{self, StdoutLock, Write};
+use std::ops::Range;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use crate::entry::DirEntry;
 use crate::error::print_error;
 use crate::exit_codes::ExitCode;
 use crate::filesystem::strip_current_dir;
+use crate::walk::Match;
 
 lazy_static! {
     static ref MAIN_SEPARATOR_STR: String = std::path::MAIN_SEPARATOR.to_string();
@@ -33,12 +35,13 @@ fn stripped_path(entry: &DirEntry) -> &Path {
 // TODO: this function is performance critical and can probably be optimized
 pub fn print_entry(
     stdout: &mut StdoutLock,
-    entry: &DirEntry,
+    matched: &Match,
     config: &Config,
     wants_to_quit: &Arc<AtomicBool>,
 ) {
+    let entry = &matched.entry;
     let r = if let Some(ref ls_colors) = config.ls_colors {
-        print_entry_colorized(stdout, entry, config, ls_colors, wants_to_quit)
+        print_entry_colorized(stdout, matched, config, ls_colors, wants_to_quit)
     } else {
         print_entry_uncolorized(stdout, entry, config)
     };
@@ -81,15 +84,32 @@ fn print_trailing_slash(
     Ok(())
 }
 
+fn print_highlighted_match(
+    stdout: &mut StdoutLock,
+    s: &str,
+    range: &Range<usize>,
+    base_style: ansi_term::Style,
+) -> io::Result<()> {
+    let highlighted = base_style.underline();
+
+    write!(
+        stdout,
+        "{}{}{}",
+        base_style.paint(&s[..range.start]),
+        highlighted.paint(&s[range.clone()]),
+        base_style.paint(&s[range.end..])
+    )
+}
 // TODO: this function is performance critical and can probably be optimized
 fn print_entry_colorized(
     stdout: &mut StdoutLock,
-    entry: &DirEntry,
+    matched: &Match,
     config: &Config,
     ls_colors: &LsColors,
     wants_to_quit: &Arc<AtomicBool>,
 ) -> io::Result<()> {
     // Split the path between the parent and the last component
+    let Match { entry, range } = matched;
     let mut offset = 0;
     let path = stripped_path(entry);
     let path_str = path.to_string_lossy();
@@ -122,7 +142,7 @@ fn print_entry_colorized(
         .style_for_path_with_metadata(path, entry.metadata())
         .map(Style::to_ansi_term_style)
         .unwrap_or_default();
-    write!(stdout, "{}", style.paint(&path_str[offset..]))?;
+    print_highlighted_match(stdout, &path_str[offset..], &matched.range, style)?;
 
     print_trailing_slash(
         stdout,
