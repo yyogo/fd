@@ -18,7 +18,7 @@ use crate::config::Config;
 use crate::error::print_error;
 use crate::exec;
 use crate::exit_codes::{merge_exitcodes, ExitCode};
-use crate::filter::{Extensions, FilterKind, MinDepth, RegexMatch, SkipRoot};
+use crate::filter::{Extensions, Filter, MinDepth, RegexMatch, SkipRoot};
 use crate::output;
 
 /// The receiver thread can either be buffering results or directly streaming to the console.
@@ -363,20 +363,13 @@ fn spawn_senders(
     parallel_walker: ignore::WalkParallel,
     tx: Sender<WorkerResult>,
 ) {
-    let filters = {
-        let mut filters: Vec<FilterKind> = vec![
-            FilterKind::SkipRoot(SkipRoot),
-            FilterKind::MinDepth(MinDepth::new(config.min_depth)),
-            FilterKind::RegexMatch(RegexMatch::new(pattern, config.search_full_path)),
-            FilterKind::Extensions(Extensions::new(config.extensions.as_ref())),
-        ];
-
-        if let Some(file_types) = config.file_types.clone() {
-            filters.push(FilterKind::FileTypes(file_types));
-        }
-
-        Arc::new(filters)
-    };
+    let filters = Arc::new(
+        SkipRoot
+            .chain(MinDepth::new(config.min_depth))
+            .chain(RegexMatch::new(pattern, config.search_full_path))
+            .chain(Extensions::new(config.extensions.as_ref()))
+            .chain(config.file_types.clone()),
+    );
 
     parallel_walker.run(|| {
         let config = Arc::clone(config);
@@ -422,7 +415,7 @@ fn spawn_senders(
                 }
             };
 
-            let should_skip = filters.iter().any(|filter| filter.should_skip(&entry));
+            let should_skip = filters.should_skip(&entry);
             if should_skip {
                 return ignore::WalkState::Continue;
             }
